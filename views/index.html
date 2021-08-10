@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<br lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Node.js</title>
+    <script type="text/javascript" src="/lib/socket.io.js"></script>
+</head>
+
+<body>
+    欢迎进入
+    <br>
+    <br>
+    <input type="button" value="向服务器发送消息" onclick="sendMyMessage()">
+    <br>
+    <input type="button" value="提醒服务器给我发送信息" onclick="sendMessage()">
+    <br>
+</body>
+
+</br>
+
+<script type="text/javascript">
+
+    //和服务器建立长连接
+    // 跨域地址
+    // TODO: 这里注意一下 不能写127.0.0.1 或者localhost 不然其他客户端访问不到
+    var socket = io.connect('192.168.56.1:9004'); // 拓展到跨域的话这里一定要写ip:端口这种形式
+
+    //向服务器端发送自定义消息
+    function sendMyMessage() {
+        socket.emit('custom', '我是跨域过来的客户端');
+    }
+
+    function sendMessage() {
+        socket.emit('server', '我是客户端,给我发送一个信息');
+    }
+
+    //接收服务器推送来的消息
+    socket.on('system', function (data) {
+        console.log(data)
+    });
+    //接收服务器推送来的消息
+
+    var num1 = 0;
+
+    socket.on('test1', function (data) {
+        num1++
+        console.log(data + num1)
+    });
+
+
+    //和服务器建立长连接
+    //socket.on('connect', function(){});
+</script>
