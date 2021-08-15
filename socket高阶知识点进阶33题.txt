@@ -1,0 +1,306 @@
+[socket高阶知识点进阶33题]
+
+1、http协议连接断开的原理：
+http请求包含请求头header、请求体body和请求尾end。
+请求头和请求体会包含一些属性信息和数据信息发送给服务器，服务器接收请求数据处理后会返回响应数据。
+当服务器执行到请求尾end时，http连接就会自动断开，这就是http连接自动断开的整个过程。
+
+
+2、webSocket--web端长连接的概念
+webSocket长连接遵循的协议是ws协议。写法是：
+ws://icosevent-icmseventpushpinx-service-icos.icos.icos.city/event/${tenant}_${category}_${twinType}_${id}
+
+
+3、http请求和ws请求区别在于：
+a、http连接就断开原理：http连接----连接(请求)----回来(响应)----服务器执行到end断开连接
+b、webSocket长连接更像没有切断尾巴的http连接：ws连接---连接(请求)----回来(响应)----不断开连接
+
+
+4、socket--pc端长连接的概念
+a、socket是c/s模式，pc端的长连接，不会自动断开，但不适用于web端，那web端的长连接的概念又是什么呢？
+b、是webSocket,适用于浏览器客户端的长连接，浏览器端的页面打开或刷新，客户端就连上了服务端
+
+
+5、开启telnet 命令行功能
+控制面板----程序和功能----启用或关闭windows功能----勾选Telnet Client选项(win10默认没有勾选)
+
+
+6、Socket--pc端服务是一个net插件包实例对象
+
+[socket服务端监听客户端连接]：
+7、原始写法(是错的 无法监听客户端连接 没有触发连接事件)
+// var net = require('net'); // 导入net库
+// var chatServer = net.createServer(); // 创建服务端net服务
+
+// var index = 0, // 客户端流水编号
+//     clientMap = new Object(); // 客户端集合对象
+
+// chatServer.on('connect', function(client) {
+//     console.log('有人连上来了');
+//     client.name = ++ index; // 给客户端一个流水号
+//     clientMap[client.name] = client;
+// });
+
+
+8、新式写法才能做到监听客户端连接的功能：
+const net = require('net');
+net.createServer(connection => {
+    console.log('有客户端连接上来.');
+    connection.on('close', () => {
+        console.log('客户端 断开连接 disconnected.');
+    });
+}).listen(9009, () => console.log('服务端已经启动，端口9009'));
+
+
+9、网上叫的套接字----就是指的socket翻译过来的中文说法
+
+
+[socket服务端监听消息发送--监听error错误捕获--监听close客户端关闭连接]：
+10、socket服务端监听消息发送
+client.on('data', data => {
+    console.log('服务端监听到客户端发来的数据data =>', data.toString());
+    // 2、注意：服务端收到客户端消息后就进行广播，这个没错----但是客户端收到服务端消息就不能继续发消息给服务端，否则就是无限循环
+    if (JSON.parse(data.toString()).type === 'emit') {
+        setTimeout(() => {
+            broadcast(`${client.name}say:${JSON.parse(data.toString()).data}`)
+        }, 500)
+    }else {
+        console.log('客户端消息 =>', JSON.parse(data.toString()).data);
+    }
+});
+
+11、socket服务端监听客户端error错误捕获
+client.on('error', err => {
+    console.log('服务端监听到客户端报错信息:', JSON.stringify(err));
+    client.end(); // 错误事件触发end()关闭客户端方法--关闭客户端
+});
+注意：这个error事件捕获尽量写在client.write()发送消息前面，这样就能捕获错误而不阻塞进程
+
+
+
+
+12、socket服务端监听close客户端关闭连接
+client.on('close', () => {
+    delete clientMap[client.name];
+    console.log('客户端 断开连接 disconnected.');
+    broadcast(`${client.name}下线了`)
+});
+注意：这个on('close')一定要配合on('error')一起使用，否则会throw ErrorException 阻塞进程
+
+
+
+13、报错：socket error：Error：read ECONNRESET.分析
+错误原因：与客户端的SOCKET被客户端强行被断开，而服务器还企图READ。
+解决方法：在CREATESERVER里的SOCKET绑定ERROR事件即可，不然出现错误会THROW，而THROW会中断程序。
+socket变量名.on('error',(err)=>{
+        console.log(err);
+});
+
+[end]
+
+
+
+[服务端先写广播方法和分析广播应用场景]
+14、服务端先写广播方法
+step1、先设置客户端映射对象和客户端流水号变量等
+const clientMap = {}; // map client object
+let ii = 0; // number of clients
+
+
+
+step2、在客户端连接上来时，使用映射对象和流水号保存客户端对象到映射对象集中
+net.createServer(client => { // client就是连接到服务端的客户端套接字
+    console.log('有客户端连接上来.');
+    client.name = ++ii; // 定义client客户端name属性，赋值流水号
+    clientMap[client.name] = client; // 往映射对象里面添加连接上来的client客户端对象
+    client.on('error', err => {
+        console.log('服务端监听到客户端报错信息:', JSON.stringify(err));
+        client.end(); // 错误事件触发end()关闭客户端方法--关闭客户端
+    });
+
+注意：
+ client.name = ++ii; // 定义client客户端name属性，赋值流水号
+ clientMap[client.name] = client; // 往映射对象里面添加连接上来的client客户端对象
+以上两句就是加入客户端对象到映射集中。
+
+
+step3、服务端先写广播方法
+循环映射对象，然后广播：
+const broadcast = (msg, client) => {
+    for (const key in clientMap) {
+        // clientMap[key].write(`${client.name}say:${msg}\n`);
+        clientMap[key].write(JSON.stringify({ type: 'emit', data: `${client.name}say,${msg}`}));
+    }
+}
+
+注意：广播使用write()方法，广播数据格式请使用json串的格式(虽然发出去了它也会自动转成Buffer二进制数据流)，但是toString()后再反序列化之后就可以变成json对象
+
+
+15、广播方法调用场景逻辑
+应用场景一、客户端上线时需要广播----注意广播是需要遍历客户端发送消息的
+net.createServer(client => { // client就是连接到服务端的客户端套接字
+    console.log('有客户端连接上来.');
+    client.name = ++ii; // 定义client客户端name属性，赋值流水号
+    clientMap[client.name] = client; // 往映射对象里面添加连接上来的client客户端对象
+    client.on('error', err => {
+        console.log('服务端监听到客户端报错信息:', JSON.stringify(err));
+        client.end(); // 错误事件触发end()关闭客户端方法--关闭客户端
+    });
+    // client.write(JSON.stringify({ type: 'watching', data: '我是服务端初始化消息' }) + '\n');
+    // client.write(JSON.stringify({ type: 'emit', data: `玩家${client.name}上线了` }));
+    broadcast(`玩家${client.name}上线了`)
+
+[解析]
+①、    broadcast(`玩家${client.name}上线了`)优化后的广播方法----只需传入广播消息即可
+
+
+
+应用场景二、服务端在收到客户端需要广播的消息时，根据业务逻辑判断处理后，广播
+    client.on('data', data => {
+        console.log('服务端监听到客户端发来的数据data =>', data.toString());
+        // 2、服务端收到客户端消息后就进行广播，这个没错----但是客户端收到服务端消息就不能继续发消息给服务端，否则就是无限循环
+        if (JSON.parse(data.toString()).type === 'emit') {
+            setTimeout(() => {
+                // broadcast(JSON.parse(data.toString()).data, client)
+                broadcast(`${client.name}say:${JSON.parse(data.toString()).data}`)
+            }, 500)
+        }else {
+            console.log('客户端消息 =>', JSON.parse(data.toString()).data);
+        }
+    });
+
+[解析]
+①、   服务端收到客户端消息，判断是否是emit广播消息，如果是就发送广播：
+ broadcast(`${client.name}say:${JSON.parse(data.toString()).data}`)----只需传入广播消息即可
+
+
+应用场景三、客户端下线时需要广播
+    client.on('close', () => {
+        delete clientMap[client.name];
+        console.log('客户端 断开连接 disconnected.');
+        // broadcast(`${client.name}下线了`, client)
+        broadcast(`${client.name}下线了`)
+    });
+
+[解析]
+①、  某一个客户端下线，服务端触发client.on('close')回调，然后发送广播：xx下线了
+broadcast(`${client.name}下线了`)
+
+[end]
+
+
+
+
+[node获取本机IP地址和mac地址的方法封装]
+16、获取IP地址方法
+function getIPAdress() {
+    var interfaces = require('os').networkInterfaces();
+    for(var devName in interfaces){
+          var iface = interfaces[devName];
+          for(var i=0;i<iface.length;i++){
+               var alias = iface[i];
+               if(alias.family === 'IPv4' && alias.address !== '127.0.0.1' && !alias.internal){
+                     return alias.address;
+               }
+          }
+    }
+}
+
+
+
+17、获取mac地址方法
+function getMac() {
+    var interfaces = require('os').networkInterfaces();
+    for(var devName in interfaces){
+          var iface = interfaces[devName];
+          for(var i=0;i<iface.length;i++){
+               var alias = iface[i];
+               if(alias.family === 'IPv4' && alias.address !== '127.0.0.1' && !alias.internal){
+                     return alias.mac;
+               }
+          }
+    }
+}
+
+[end]
+
+
+18、node里验证字符串是不是json串的功能----validator插件
+注意：这里要验证一下是不是json串----才能无缝反序列化、获取json对象里面的data数据
+验证json串的插件是validator，需要安装这个插件才行：
+
+npm install validator -S
+
+调用：其中有个方法isJSON(str)----来判断str是不是json串，是json串才能反序列化成JSON对象，否则会报错：
+const validator = require('validator');
+
+ let resJson = res.toString();
+            if (validator.isJSON(resJson)) {
+                console.log('客户端收到服务端JSON格式消息 =>', JSON.parse(resJson));
+                console.log('客户端收到服务端JSON格式消息 data数据：=>', JSON.parse(resJson).data);
+            }else {
+                console.log('客户端收到服务端其它格式消息 =>', res.toString());
+            }
+
+
+
+[node客户端]：
+19、socket客户端连接服务端代码
+const net = require('net');
+const validator = require('validator');
+const host = '127.0.0.1';
+const port = 9009;
+
+const client = net.connect({port, host}, function() {
+    // console.log('当前客户端对象 =>', this);
+    this.on('error',err => {
+        console.log('客户端监听到服务端报错信息:', JSON.stringify(err));
+    });
+    // 1、连接成功后，客户端说大家好，发给服务端
+    this.write(JSON.stringify({ type: 'emit', data: `大家好，我是${getMac()}` }))
+
+…………
+
+
+
+20、socket客户端监听服务端广播消息
+this.on('data', res => { // 这个事件监听----可以证明this指向的就是client对象
+    // console.log('用this对象(指向client)接收服务端消息 =>', res.toString());
+    // console.log(JSON.parse(res.toString()).type); // 直接转换成json对象
+    // 3、注意：这里的逻辑--客户端收到广播或者服务端消息，不能立即回复，应该是展示在控制台或前端页面上，应该是这个逻辑，否则会无限循环
+    // this.write(JSON.stringify({ type: 'emit', data: '我是客户端消息' }) + '\n')
+    // 3、这里我们选择收到服务端消息后，打印消息在控制台即可
+    try {
+        // console.log('我是res消息 =>', res);
+        // console.log('我是res.toString()消息 =>', res.toString());
+        let resJson = res.toString();
+        if (validator.isJSON(resJson)) {
+            console.log('客户端收到服务端JSON格式消息 =>', JSON.parse(resJson));
+            console.log('客户端收到服务端JSON格式消息 data数据：=>', JSON.parse(resJson).data);
+            
+        }else {
+            console.log('客户端收到服务端其它格式消息 =>', res.toString());
+        }
+        
+    } catch (error) {
+        console.log('接收服务端消息报错 =>', error);
+    }
+})
+
+
+
+21、socket客户端监听服务端断开连接
+this.on('close', res => {
+    console.log('==========================服务端关闭连接================================');
+})
+
+
+22、socket客户端发送消息给服务端
+this.write(JSON.stringify({ type: 'emit', data: `大家好，我是${getMac()}` }))
+注意：客户端不存在广播，客户端都是发送消息给服务端，让服务端广播
+
+
+23、判断是不是Buffer数据的方法
+function isBuffer(str) {
+    return str && typeof str === "object" && Buffer.isBuffer(str)
+}
